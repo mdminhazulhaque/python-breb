@@ -12,15 +12,17 @@ Scope is intentionally small: login, customer details, and bill lookup.
 
 ### Core Components
 
-**breb/breb.py** — API client layer
-- `BREBConsumerAPI` class, pure `requests` REST client
-- **Passwordless bearer-token auth**: `login(phone_number)` returns a Laravel Sanctum token; any registered phone returns a token immediately (no OTP, no password)
-- Token is persisted to `~/.python-breb-api-config` (configparser) and reused on later calls
+**breb/breb.py** — stateless API engine
+- `BREBConsumerAPI(token=None)` — pure `requests` REST client, **no file/env I/O**
+- Safe to instantiate per-request in FastAPI/Django; the caller owns the token
+- **Passwordless bearer-token auth**: `login(phone_number)` returns a Laravel Sanctum token (no OTP, no password) and stores it on `self.token`, but does NOT persist it
 - Form fields are sent as multipart (`files={"field": (None, value)}`) to match the mobile app
 - The account identifier is the **SMS account number** (10–14 digit string)
+- Methods return plain JSON-serializable dicts
 
-**breb/main.py** — CLI layer
+**breb/main.py** — CLI layer (owns persistence)
 - Click-based CLI using the `@app.command(name="...")` decorator pattern
+- **Token persistence lives here, not in the engine**: `login` saves to `~/.python-breb-api-config` (configparser); other commands read it back and pass `token=` into the engine
 - `@handle_api_error` decorator catches connection/timeout and generic errors, exits 1
 - Entry point: `app()` mapped to `breb-cli` in pyproject.toml
 - `tabulate` for formatted output

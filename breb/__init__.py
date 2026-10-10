@@ -8,8 +8,8 @@ Example:
     >>> from breb import BREBConsumerAPI
     >>> client = BREBConsumerAPI()
     >>> client.login(phone_number="01XXXXXXXXX")
-    >>> client.customer_info("1010018581900")
-    >>> client.bill("1010018581900")
+    >>> client.customer_info("10XXXXXXXXXXX")
+    >>> client.bill("10XXXXXXXXXXX")
 """
 
 from .breb import BREBConsumerAPI

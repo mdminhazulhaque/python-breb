@@ -40,10 +40,10 @@ breb-cli --help
 breb-cli login 01XXXXXXXXX
 
 # Look up customer details
-breb-cli customer-info 1010018581900
+breb-cli customer-info 10XXXXXXXXXXX
 
 # Look up the latest bill
-breb-cli bill 1010018581900
+breb-cli bill 10XXXXXXXXXXX
 ```
 
 ## 📖 Usage
@@ -79,28 +79,28 @@ $ breb-cli login 01XXXXXXXXX
 ### 👤 Customer Details
 
 ```bash
-$ breb-cli customer-info 1010018581900
+$ breb-cli customer-info 10XXXXXXXXXXX
 ```
 
 **Sample Output:**
 ```
 📋 Customer Information:
-Account Number   1010018581900
-Name             MD. MINHAZUL HAQUE
-Father's Name    ...
-Address          Jashore
-PBS              Jashore PBS-1
-PBS Office       ...
-Tariff Category  LT-A
-Phase            1
-Load (kW)        2
-Meter Number     14705612
+Account Number   10XXXXXXXXXXX
+Name             RAHIM UDDIN
+Father's Name    KORIM UDDIN
+Address          Sadar
+PBS              Example PBS-1
+PBS Office       Head Office
+Tariff Category  Commercial and Office
+Phase            Single Phase
+Load (kW)        0.65
+Meter Number     XXXXXXXX
 ```
 
 ### 🧾 Bill
 
 ```bash
-$ breb-cli bill 1010018581900
+$ breb-cli bill 10XXXXXXXXXXX
 ```
 
 **Sample Output:**
@@ -124,18 +124,30 @@ Bill Month      Receivable
 
 ## 🐍 Programmatic Use
 
+The core `BREBConsumerAPI` is a **stateless engine** — it never touches the
+filesystem, so it drops straight into FastAPI, Django, or any service. You own
+the token: get one from `login()`, store it wherever you like, and pass it back
+in via the constructor.
+
 ```python
 from breb import BREBConsumerAPI
 
-client = BREBConsumerAPI()
-client.login(phone_number="01XXXXXXXXX")   # token is stored and reused
+# 1. Log in once, persist the token in your own store (DB, Redis, session)
+token = BREBConsumerAPI().login(phone_number="01XXXXXXXXX")
 
-customer = client.customer_info("1010018581900")
-bill = client.bill("1010018581900")
+# 2. Later / elsewhere, construct a client per request with that token
+client = BREBConsumerAPI(token=token)
+customer = client.customer_info("10XXXXXXXXXXX")   # -> dict
+bill = client.bill("10XXXXXXXXXXX")                 # -> dict
 
 print(customer["name"], customer["meter_number"])
 print(bill["billed_amount"], bill["payment_status"])
 ```
+
+The `breb-cli` command is the one place that persists the token to disk
+(`~/.python-breb-api-config`); the engine itself stays stateless, so you can
+store the token however you like (DB, Redis, session) and pass it back via
+`BREBConsumerAPI(token=...)`.
 
 ## 🛠️ Development
 
@@ -170,4 +182,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ⚠️ Disclaimer
 
-This is an unofficial tool. Use at your own discretion. The authors are not responsible for any issues that may arise from using this tool.
+This is an independent, unofficial tool and is not affiliated with, endorsed by, or connected to the Bangladesh Rural Electrification Board (REB) / Palli Bidyut.
+
+Every piece of information this tool retrieves is **already publicly available** to any consumer through the official customer portal and mobile app. This project does **not** reverse engineer, bypass, or circumvent anything — it simply accesses the same publicly accessible consumer information programmatically and presents it in a convenient format.
+
+Please only look up accounts you are authorized to access. Use at your own discretion; the authors are not responsible for any issues that may arise from using this tool.

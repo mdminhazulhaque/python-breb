@@ -2,24 +2,27 @@
 """
 BREB (Bangladesh Rural Electrification Board / Palli Bidyut) API client.
 
-Talks to the consumer-mobile-app API used by the official "com.myreb" app.
-Authentication is a passwordless bearer token: POST a phone number to `login`
-and the API returns a Laravel Sanctum token used on every subsequent call.
+Stateless core engine: construct with an optional bearer token, call methods,
+get back plain dicts. No file or environment I/O happens here, so the class is
+safe to instantiate per-request inside FastAPI, Django, or any web framework.
+Token persistence (file, DB, Redis) is the caller's responsibility -- see the
+`examples/` directory.
 """
-
-import os
-import configparser
 
 import requests
 
 
 class BREBConsumerAPI:
     BREB_BASE_URL = "https://service.rebpbs.com/api/v1/consumer-mobile-app"
-    CONFIG_FILE = os.path.expanduser("~/.python-breb-api-config")
     TIMEOUT = 25
 
-    def __init__(self):
-        self.token = self.load_token()
+    def __init__(self, token=None):
+        """
+        Args:
+            token: a bearer token obtained from `login()`. Required for every
+                   call except `login()` itself.
+        """
+        self.token = token
 
     # --- auth ---------------------------------------------------------------
 
@@ -27,8 +30,9 @@ class BREBConsumerAPI:
         """
         Log in with a phone number and return a bearer token.
 
-        Login is passwordless: any phone number returns a token immediately.
-        The token is saved to CONFIG_FILE and reused by later calls.
+        Login is passwordless: any registered phone number returns a token
+        immediately. The token is also stored on `self.token` for convenience,
+        but it is NOT persisted anywhere -- persist the returned value yourself.
         """
         url = f"{self.BREB_BASE_URL}/login"
         response = requests.post(
@@ -44,18 +48,12 @@ class BREBConsumerAPI:
             raise RuntimeError(f"Login failed: {response.text}")
 
         self.token = token
-        self.save_token(token)
         return token
 
     def _get_info(self, account_number):
-        """
-        POST icbs/getInfo for an SMS account number.
-
-        Returns the `data` object: {customer_info, billing_info}.
-        Requires a token (call login() first).
-        """
+        """POST icbs/getInfo and return the `data` object {customer_info, billing_info}."""
         if not self.token:
-            raise RuntimeError("Not authenticated. Run login(phone_number) first.")
+            raise RuntimeError("Not authenticated. Pass token= or call login() first.")
 
         url = f"{self.BREB_BASE_URL}/icbs/getInfo"
         response = requests.post(
@@ -74,10 +72,10 @@ class BREBConsumerAPI:
             raise RuntimeError(payload.get("message", "Request failed"))
         return payload["data"]
 
-    # --- customer details ---------------------------------------------------
+    # --- data ----------------------------------------------------------------
 
     def customer_info(self, account_number):
-        """Return customer/meter details for an account number."""
+        """Return customer/meter details as a dict."""
         info = self._get_info(account_number)["customer_info"]
         return {
             "account_number": info.get("AccountNumber"),
@@ -93,10 +91,8 @@ class BREBConsumerAPI:
             "meter_number": info.get("MeterNumber"),
         }
 
-    # --- bill ----------------------------------------------------------------
-
     def bill(self, account_number):
-        """Return the latest bill (with arrears) for an account number."""
+        """Return the latest bill (with arrears) as a dict."""
         billing = self._get_info(account_number)["billing_info"]
         return {
             "bill_number": billing.get("BillNumber"),
@@ -109,20 +105,11 @@ class BREBConsumerAPI:
             "last_payment_date_with_lpc": billing.get("LastPaymentDateWithLpc"),
             "payment_status": billing.get("PaymentStatus"),
             "payment_channel": billing.get("PaymentChannel"),
-            "arrears": billing.get("ArrearDetails", []),
+            "arrears": [
+                {
+                    "bill_month": a.get("BillMonth"),
+                    "receivable": a.get("ReceivableAmount"),
+                }
+                for a in billing.get("ArrearDetails", [])
+            ],
         }
-
-    # --- token persistence ---------------------------------------------------
-
-    def save_token(self, token):
-        config = configparser.ConfigParser()
-        config["DEFAULT"] = {"token": token}
-        with open(self.CONFIG_FILE, "w") as configfile:
-            config.write(configfile)
-
-    def load_token(self):
-        config = configparser.ConfigParser()
-        if os.path.exists(self.CONFIG_FILE):
-            config.read(self.CONFIG_FILE)
-            return config["DEFAULT"].get("token")
-        return None

@@ -2,13 +2,17 @@
 """
 BREB Consumer CLI
 
-A command-line interface for the Bangladesh REB / Palli Bidyut consumer API.
-Provides commands to log in (passwordless, phone number only), look up customer
-details, and view the latest bill.
+Command-line interface for the Bangladesh REB / Palli Bidyut consumer API.
+
+The CLI (not the core engine) owns token persistence: `login` saves the bearer
+token to ~/.python-breb-api-config, and the other commands read it back. The
+core `BREBConsumerAPI` class stays stateless so it can be reused in web apps.
 """
 
+import os
 import sys
 import functools
+import configparser
 
 import click
 import requests
@@ -16,6 +20,31 @@ from tabulate import tabulate
 
 from .breb import BREBConsumerAPI
 from . import __version__
+
+CONFIG_FILE = os.path.expanduser("~/.python-breb-api-config")
+
+
+def save_token(token):
+    config = configparser.ConfigParser()
+    config["DEFAULT"] = {"token": token}
+    with open(CONFIG_FILE, "w") as fh:
+        config.write(fh)
+
+
+def load_token():
+    config = configparser.ConfigParser()
+    if os.path.exists(CONFIG_FILE):
+        config.read(CONFIG_FILE)
+        return config["DEFAULT"].get("token")
+    return None
+
+
+def client():
+    """Build a core client using the saved token (if any)."""
+    token = load_token()
+    if not token:
+        raise click.ClickException("Not logged in. Run `breb-cli login <phone_number>` first.")
+    return BREBConsumerAPI(token=token)
 
 
 def handle_api_error(func):
@@ -32,6 +61,8 @@ def handle_api_error(func):
                 err=True,
             )
             sys.exit(1)
+        except click.ClickException:
+            raise
         except Exception as e:
             click.echo(f"❌ Error: {str(e)}", err=True)
             sys.exit(1)
@@ -57,7 +88,8 @@ def login(phone_number):
     """Log in with a phone number and save the bearer token."""
     click.echo(f"🔐 Logging in with phone number {phone_number}...")
     token = BREBConsumerAPI().login(phone_number=phone_number)
-    click.echo(f"✅ Logged in. Token saved: {token[:12]}...")
+    save_token(token)
+    click.echo(f"✅ Logged in. Token saved to {CONFIG_FILE}")
 
 
 @app.command(name="customer-info")
@@ -66,7 +98,7 @@ def login(phone_number):
 def customer_info(account_number):
     """Get customer and meter details for an SMS account number."""
     click.echo("👤 Fetching customer information...")
-    info = BREBConsumerAPI().customer_info(account_number)
+    info = client().customer_info(account_number)
     table = [
         ["Account Number", info["account_number"]],
         ["Name", info["name"]],
@@ -90,7 +122,7 @@ def customer_info(account_number):
 def bill(account_number):
     """Get the latest bill for an SMS account number."""
     click.echo("💰 Fetching bill...")
-    b = BREBConsumerAPI().bill(account_number)
+    b = client().bill(account_number)
     table = [
         ["Bill Number", b["bill_number"]],
         ["Bill Month", b["bill_month"]],
@@ -107,10 +139,7 @@ def bill(account_number):
     click.echo(tabulate(table, tablefmt="simple"))
 
     if b["arrears"]:
-        arrears = [
-            [a.get("BillMonth"), a.get("ReceivableAmount")]
-            for a in b["arrears"]
-        ]
+        arrears = [[a["bill_month"], a["receivable"]] for a in b["arrears"]]
         click.echo("\n📌 Arrears:")
         click.echo(tabulate(arrears, headers=["Bill Month", "Receivable"], tablefmt="simple"))
 
